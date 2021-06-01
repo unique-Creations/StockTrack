@@ -4,7 +4,7 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
-from alpha_vantage.timeseries import TimeSeries
+from yahoo_fin import stock_info as si
 from collections import deque
 
 import os
@@ -13,7 +13,7 @@ import pandas as pd
 import random
 import time
 
-ts = TimeSeries(key='ZTQCL7FXGN9MMH9B', output_format='pandas')
+# ts = TimeSeries(key='ZTQCL7FXGN9MMH9B', output_format='pandas')
 np.random.seed(314)
 tf.random.set_seed(314)
 random.seed(314)
@@ -40,7 +40,7 @@ split_by_date_str = f"sbd-{int(SPLIT_BY_DATE)}"
 TEST_SIZE = 0.2
 
 # features to use
-FEATURE_COLUMNS = ['open', 'high', 'low', 'close', 'volume']
+FEATURE_COLUMNS = ['adjclose', 'volume', 'open', 'high', 'low']
 
 # date now
 date_now = time.strftime("%Y-%m-%d")
@@ -97,7 +97,7 @@ def shuffle_in_unison(a, b):
 
 def load_data(ticker, n_steps=50, scale=True,
               lookup_step=1, split_by_date=True, shuffle=True,
-              test_size=0.2, feature_columns=['open', 'high', 'low', 'close', 'volume']):
+              test_size=0.2, feature_columns=['adjclose', 'volume', 'open', 'high', 'low']):
     """
     Loads data from Yahoo Finance source, as well as scaling, shuffling, normalizing and splitting.
 
@@ -109,13 +109,13 @@ def load_data(ticker, n_steps=50, scale=True,
     :param shuffle:  (bool) whether to shuffle the dataset (both training & testing), default is True
     :param test_size: (float) ratio for test data, default is 0.2 (20% testing data)
     :param feature_columns: (list) the list of features to use to feed into the model. default is everything grabbed
-           from alpha_vantage
+           from Yahoo Finance
     """
     # see if ticker is already a loaded stock from yahoo finance
 
     if isinstance(ticker, str):
         # load it from yahoo_fin library
-        df, meta_data = ts.get_intraday(symbol=ticker, interval=f'{n_steps}', outputsize='full')
+        df = si.get_data(ticker)
     elif isinstance(ticker, pd.DataFrame):
         # already loaded, use it directly
         df = ticker
@@ -241,23 +241,27 @@ def create_model(sequence_length, n_features, units=256, cell=LSTM, n_layers=2, 
     return model
 
 
-# load the data
-data = load_data(ticker, N_STEPS, scale=SCALE, split_by_date=SPLIT_BY_DATE, shuffle=SHUFFLE, lookup_step=LOOKUP_STEP,
-                 test_size=TEST_SIZE, feature_columns=FEATURE_COLUMNS)
+if __name__ == '__main__':
+    # load the data
+    data = load_data(ticker, N_STEPS, scale=SCALE, split_by_date=SPLIT_BY_DATE, shuffle=SHUFFLE,
+                     lookup_step=LOOKUP_STEP,
+                     test_size=TEST_SIZE, feature_columns=FEATURE_COLUMNS)
 
-# save the dataframe
-data["df"].to_csv(ticker_data_filename)
+    # save the dataframe
+    data["df"].to_csv(ticker_data_filename)
 
-# construct the model
-model = create_model(N_STEPS, len(FEATURE_COLUMNS), loss=LOSS, units=UNITS, cell=CELL, n_layers=N_LAYERS,
-                     dropout=DROPOUT, optimizer=OPTIMIZER, bidirectional=BIDIRECTIONAL)
+    # construct the model
+    model = create_model(N_STEPS, len(FEATURE_COLUMNS), loss=LOSS, units=UNITS, cell=CELL, n_layers=N_LAYERS,
+                         dropout=DROPOUT, optimizer=OPTIMIZER, bidirectional=BIDIRECTIONAL)
 
-# some tensorflow callbacks
-checkpointer = ModelCheckpoint(os.path.join("results", model_name + ".h5"), save_weights_only=True, save_best_only=True,
-                               verbose=1)
-tensorboard = TensorBoard(log_dir=os.path.join("logs", model_name))
+    # some tensorflow callbacks
+    checkpointer = ModelCheckpoint(os.path.join("results", model_name + ".h5"), save_weights_only=True,
+                                   save_best_only=True,
+                                   verbose=1)
+    tensorboard = TensorBoard(log_dir=os.path.join("logs", model_name))
 
-# train the model and save the weights whenever we see
-# a new optimal model using ModelCheckPoint
-history = model.fit(data["X_train"], data["y_train"], batch_size=BATCH_SIZE, epochs=EPOCHS,
-                    validation_data=(data["X_test"], data["y_test"]), callbacks=[checkpointer, tensorboard], verbose=1)
+    # train the model and save the weights whenever we see
+    # a new optimal model using ModelCheckPoint
+    history = model.fit(data["X_train"], data["y_train"], batch_size=BATCH_SIZE, epochs=EPOCHS,
+                        validation_data=(data["X_test"], data["y_test"]), callbacks=[checkpointer, tensorboard],
+                        verbose=1)
